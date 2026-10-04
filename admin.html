@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Maplewood Guestbook Admin</title>
+<style>
+:root{--ink:#2c241c;--cream:#f5efe4;--paper:#fffdf8;--wood:#5d3d28;--gold:#a47b45;--line:#ddd0bb;--green:#52673d}
+*{box-sizing:border-box}body{margin:0;background:var(--cream);color:var(--ink);font:16px/1.5 Arial,sans-serif}
+header{background:linear-gradient(135deg,#3e281b,#68442c);color:white;padding:28px 20px}.wrap{max-width:1100px;margin:auto;padding:24px}
+.card{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:22px;margin-bottom:18px;box-shadow:0 4px 14px #0000000d}
+h1,h2{font-family:Georgia,serif}input{width:100%;padding:12px;border:1px solid var(--line);border-radius:9px;margin:6px 0 12px}
+button{border:0;border-radius:999px;padding:11px 17px;background:var(--wood);color:white;font-weight:700;cursor:pointer}button.secondary{background:#eee2cf;color:var(--ink)}button.danger{background:#8b2d2d}
+.toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:15px}table{width:100%;border-collapse:collapse;background:white}
+th,td{padding:11px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}th{background:#f3eadc}.small{font-size:.9rem;color:#675647}
+#dashboard{display:none}#status{margin-top:10px}@media(max-width:720px){table,thead,tbody,tr,th,td{display:block}thead{display:none}tr{border:1px solid var(--line);margin-bottom:12px;border-radius:10px;padding:8px}td{border:0}}
+</style>
+</head>
+<body>
+<header><div class="wrap"><div style="letter-spacing:.13em;font-weight:700">MAPLEWOOD GUEST HOUSE</div><h1>Visitor Guestbook Admin Dashboard</h1></div></header>
+<main class="wrap">
+<section class="card" id="loginCard">
+<h2>Administrator Login</h2>
+<p>Sign in with the authorized Maplewood administrator account.</p>
+<label>Email</label><input id="email" type="email" autocomplete="username">
+<label>Password</label><input id="password" type="password" autocomplete="current-password">
+<button id="loginBtn">Log In</button><div id="loginStatus" class="small"></div>
+</section>
+<section id="dashboard">
+<div class="card">
+<h2>Guestbook Entries</h2>
+<div class="toolbar"><button id="refreshBtn">Refresh</button><button id="csvBtn" class="secondary">Download CSV</button><button id="logoutBtn" class="secondary">Log Out</button><strong id="count"></strong></div>
+<div style="overflow:auto"><table><thead><tr><th>Date / Time</th><th>Guest Name</th><th>Comment</th><th>Tour</th><th>Action</th></tr></thead><tbody id="rows"></tbody></table></div>
+<div id="status" class="small"></div>
+</div></section>
+</main>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-app.js";
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-auth.js";
+import { getFirestore, collection, getDocs, deleteDoc, doc, query, orderBy } from "https://www.gstatic.com/firebasejs/12.4.0/firebase-firestore.js";
+const firebaseConfig = {
+  apiKey: "AIzaSyDgJ7Mph78phLFGV_NIxr42WkazabBatlY",
+  authDomain: "maplewood-audio-tour.firebaseapp.com",
+  projectId: "maplewood-audio-tour",
+  storageBucket: "maplewood-audio-tour.firebasestorage.app",
+  messagingSenderId: "654137126347",
+  appId: "1:654137126347:web:c2c18b395eb03105365a4e",
+  measurementId: "G-NXGJ4452EM"
+};
+const ADMIN_UID="lVwmFKqbFcVhEP2c6kYBXQwI5BE2";
+const app=initializeApp(firebaseConfig),auth=getAuth(app),db=getFirestore(app);
+let entries=[];
+
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function dateText(ts){try{return ts?.toDate().toLocaleString()||'Pending'}catch{return 'Pending'}}
+async function loadEntries(){
+ const status=document.getElementById('status');status.textContent='Loading...';
+ try{
+   const snap=await getDocs(query(collection(db,'guestbook'),orderBy('submittedAt','desc')));
+   entries=snap.docs.map(d=>({id:d.id,...d.data()}));
+   document.getElementById('count').textContent=`${entries.length} entr${entries.length===1?'y':'ies'}`;
+   document.getElementById('rows').innerHTML=entries.map(e=>`<tr><td>${esc(dateText(e.submittedAt))}</td><td>${esc(e.name)}</td><td>${esc(e.comment)}</td><td>${e.tourCompleted?'✓ Completed':'—'}</td><td><button class="danger" data-delete="${esc(e.id)}">Delete</button></td></tr>`).join('');
+   status.textContent=entries.length?'':'No Guestbook entries yet.';
+ }catch(e){console.error(e);status.textContent='Unable to load Guestbook entries.'}
+}
+document.getElementById('rows').addEventListener('click',async e=>{
+ const id=e.target.dataset.delete;if(!id)return;
+ if(!confirm('Delete this Guestbook entry permanently?'))return;
+ try{await deleteDoc(doc(db,'guestbook',id));await loadEntries()}catch(err){alert('Unable to delete this entry.')}
+});
+document.getElementById('loginBtn').onclick=async()=>{
+ const s=document.getElementById('loginStatus');s.textContent='Signing in...';
+ try{
+  const cred=await signInWithEmailAndPassword(auth,email.value.trim(),password.value);
+  if(cred.user.uid!==ADMIN_UID){await signOut(auth);throw new Error('Unauthorized administrator')}
+  s.textContent='';
+ }catch(e){
+  console.error('Firebase login error:', e);
+  const code = e && e.code ? e.code : 'unknown-error';
+  s.textContent = 'Login failed: ' + code;
+}
+};
+document.getElementById('logoutBtn').onclick=()=>signOut(auth);
+document.getElementById('refreshBtn').onclick=loadEntries;
+document.getElementById('csvBtn').onclick=()=>{
+ const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';
+ const lines=[['Date/Time','Guest Name','Comment','Tour Completed','Completed Stops'].map(q).join(',')];
+ entries.forEach(e=>lines.push([dateText(e.submittedAt),e.name,e.comment,e.tourCompleted?'Yes':'No',e.completedStops].map(q).join(',')));
+ const blob=new Blob([lines.join('\n')],{type:'text/csv;charset=utf-8'});
+ const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='Maplewood-Guestbook.csv';a.click();URL.revokeObjectURL(a.href);
+};
+onAuthStateChanged(auth,user=>{
+ const ok=user&&user.uid===ADMIN_UID;
+ document.getElementById('loginCard').style.display=ok?'none':'block';
+ document.getElementById('dashboard').style.display=ok?'block':'none';
+ if(ok)loadEntries();
+});
+</script>
+</body></html>
